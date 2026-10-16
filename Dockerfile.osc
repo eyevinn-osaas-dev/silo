@@ -1,0 +1,29 @@
+# Silo (PGSTY MinIO fork) for Eyevinn Open Source Cloud: the released binary behind nginx on $PORT.
+ARG SILO_RELEASE=20260916000000.0.0
+
+FROM alpine:3.22 AS fetch
+ARG SILO_RELEASE
+ARG TARGETARCH
+ARG SILO_AMD64_SHA256=381e745510a8fb64323d7bb3207f95984b7f4ed826f4fcad318f97683c420c73
+ARG SILO_ARM64_SHA256=6e697d3e1d70f2343fe829cd6820a0b840d4619f1dde546424de80e529636ed2
+RUN apk add --no-cache curl && \
+    case "${TARGETARCH}" in \
+      amd64) SHA="${SILO_AMD64_SHA256}" ;; \
+      arm64) SHA="${SILO_ARM64_SHA256}" ;; \
+      *) echo "Unsupported TARGETARCH=${TARGETARCH}"; exit 1 ;; \
+    esac && \
+    curl -fsSL -o /tmp/silo.tar.gz "https://github.com/pgsty/silo/releases/download/RELEASE.2026-09-16T00-00-00Z/silo_${SILO_RELEASE}_linux_${TARGETARCH}.tar.gz" && \
+    echo "${SHA}  /tmp/silo.tar.gz" | sha256sum -c - && \
+    mkdir /tmp/silo && tar -xzf /tmp/silo.tar.gz -C /tmp/silo && \
+    install -m 0755 "$(find /tmp/silo -type f -name silo | head -n 1)" /usr/bin/silo
+
+FROM alpine:3.22
+RUN apk add --no-cache bash nginx ca-certificates curl
+COPY --from=fetch /usr/bin/silo /usr/bin/silo
+COPY osc-nginx.conf.template /etc/nginx/nginx.conf.template
+COPY --chmod=755 osc-entrypoint.sh /usr/local/bin/osc-entrypoint.sh
+ENV PORT=8080
+EXPOSE 8080
+VOLUME ["/data"]
+ENTRYPOINT ["/usr/local/bin/osc-entrypoint.sh"]
+CMD ["silo", "server", "--address", "0.0.0.0:9000", "--console-address", "0.0.0.0:9001", "/data"]
